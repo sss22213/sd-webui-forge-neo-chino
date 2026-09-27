@@ -1,0 +1,72 @@
+services:
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # All Python deps (torch, requirements.txt, every extension's
+      # install.py packages) are baked into the image at build time, so
+      # `docker compose up` does not pip-install anything. Rebuild with
+      # `docker compose build` after changing the Dockerfile,
+      # requirements.txt, or an extension's requirements.
+      # Build-time overrides (see ARGs in the Dockerfile):
+      # args:
+      #   TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130
+      #   DEPTH_ANYTHING_WHEEL: https://...
+      #   DEPTH_ANYTHING_V2_WHEEL: https://...
+    image: sd-webui-forge-neo:local
+    container_name: sd-webui-forge-neo
+    restart: unless-stopped
+
+    # Forge's launch.py picks up CLI flags from $COMMANDLINE_ARGS.
+    # Add or remove flags here without rebuilding.
+    environment:
+      COMMANDLINE_ARGS: >-
+        --listen
+        --port 7860
+        --api
+        --xformers
+        --skip-version-check
+      HF_HOME: /workspace/cache/huggingface
+      TORCH_HOME: /workspace/cache/torch
+      XDG_CACHE_HOME: /workspace/cache
+      # Honor host GPU selection if the user sets it; defaults to all GPUs.
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+
+    ports:
+      - "7860:7860"
+
+    # Bind-mount the whole project so extensions, configs and logs are
+    # edited in place on the host. Anything baked into the image
+    # (site-packages) is hidden under this mount intentionally.
+    #
+    # The two sub-mounts below redirect the heavy paths to dedicated
+    # disks. Docker layers child mounts on top of the parent, so they
+    # take precedence over /workspace/models and /workspace/output/...
+    volumes:
+      - .:/workspace
+      - /mnt/ai/model:/workspace/models
+      - /media/disk1/ai_output/txt2img-images:/workspace/output/txt2img-images
+
+    # Stable Diffusion needs a roomy /dev/shm; the default 64MB causes
+    # DataLoader / multi-process crashes on larger batches.
+    shm_size: "8gb"
+    ipc: host
+
+    tty: true
+    stdin_open: true
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7860/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 5

@@ -1,0 +1,58 @@
+# Heavy / generated / host-only paths that should not enter the build
+# context. Dockerfile only needs requirements.txt; the source tree gets
+# bind-mounted at runtime via docker-compose.
+
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python / venv
+venv
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Editor / OS junk
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Forge runtime state
+tmp
+log
+cache
+config_states
+ui-config.json
+config.json
+params.txt
+
+# Heavy data — never bake into the image.
+models/Stable-diffusion/*
+!models/Stable-diffusion/Put*.txt
+models/VAE/*
+!models/VAE/Put*.txt
+models/Lora/*
+!models/Lora/Put*.txt
+models/ESRGAN/*
+!models/ESRGAN/Put*.txt
+models/text_encoder/*
+!models/text_encoder/Put*.txt
+models/embeddings/*
+!models/embeddings/Put*.txt
+embeddings/*
+!embeddings/Place*.txt
+outputs
+extensions/*/.git
+repositories
+
+# Build artefacts that may exist locally
+build
+dist
+*.egg-info
