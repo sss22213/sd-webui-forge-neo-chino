@@ -42,6 +42,17 @@ if shared.cmd_opts.api:
         async def refresh_loras():
             return networks.list_available_networks()
 
+        # LoRA import API (Forge Neo Chino): POST /sdapi/v1/lora/import, /sdapi/v1/lora/upload — see lora_import.py
+        import lora_import
+
+        def register_one(name: str):
+            """Register only the new file instead of rescanning every LoRA."""
+            networks.process_network_files(names=[name])
+            obj = networks.available_networks.get(name)
+            return {"name": obj.name, "alias": obj.get_alias()} if obj else None
+
+        lora_import.register(app, lambda: shared.cmd_opts.lora_dir, register_one, list(network.SD_VERSION))
+
     script_callbacks.on_app_started(api_networks)
 
 

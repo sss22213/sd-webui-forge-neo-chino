@@ -1,14 +1,15 @@
 # Forge Neo Chino
 
-**sd-webui-forge-neo-chino** is a modified version of Stable Diffusion WebUI Forge Neo that adds a fully pre-installed Docker image, mobile browser support, and a model unload API.
+**sd-webui-forge-neo-chino** is a modified version of Stable Diffusion WebUI Forge Neo that adds a fully pre-installed Docker image, mobile browser support, a model unload API, and a LoRA import API.
 
 This repository is a personal modification of the `neo` branch of [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo), also known as **Forge Neo**, maintained by [sss22213](https://github.com/sss22213). "Chino" is only a codename for this variant and is not affiliated with the upstream project.
 
-Compared with upstream, it adds three things:
+Compared with upstream, it adds four things:
 
 - **One-step Docker build**: every Python package is installed during `docker compose build`, so `docker compose up` no longer waits for installs.
 - **Usable on mobile browsers**: after locking the screen or switching apps, the page reattaches to the running generation and fetches its result. Several touch and layout problems are also fixed.
 - **Model unload API**: unloading can optionally release system RAM as well, and a new endpoint reloads the model.
+- **LoRA import API**: other programs can add a LoRA by URL or upload, with its card text and preview, without a restart.
 
 > [!IMPORTANT]
 > This is not an official release. The upstream author has stated that issues caused by third-party modifications will be ignored, so please report problems with this repository here. Before reporting anything upstream, reproduce it on the [official version](https://github.com/Haoming02/sd-webui-forge-classic/tree/neo) first.
@@ -80,6 +81,9 @@ Upstream `launch.py` checks for missing packages on every start and installs the
 | `POST /sdapi/v1/unload-checkpoint` | New `full` query parameter; now runs inside the queue lock | `modules/api/api.py`, `modules/sd_models.py` |
 | `POST /sdapi/v1/reload-checkpoint` | **New**. Loads the currently selected model and returns `{"reloaded": true/false}` | `modules/api/api.py` |
 | `POST /internal/progress` | New `preview_max_size` field that downscales the live preview on the server | `modules/progress.py` |
+| `POST /sdapi/v1/lora/import` | **New**. Downloads a `.safetensors` from a URL into the Lora folder | `extensions-builtin/sd_forge_lora/lora_import.py` |
+| `POST /sdapi/v1/lora/upload` | **New**. Same, with the file uploaded as multipart form data | same |
+| `GET /sdapi/v1/lora/import` | **New**. Reports that the import API is available, the Lora folder and its sub folders | same |
 
 The `full` parameter of `unload-checkpoint`:
 
@@ -90,6 +94,17 @@ The `full` parameter of `unload-checkpoint`:
 > **Behavior difference from upstream**: in the latest upstream, calling `unload-checkpoint` without parameters performs a full unload. In this repository it only clears VRAM; add `?full=true` for a full unload. The unload button under Settings > Actions behaves the same way.
 
 The automatic cleanup after a VRAM out-of-memory error still performs a full unload, matching upstream. File: `modules/ui.py`.
+
+**LoRA import.** Made for tools that train LoRAs elsewhere (for example [LoRA Tag Studio](https://github.com/sss22213/LoRA-Tag-Studio), which trains on Civitai) and want the result in Forge without copying files by hand.
+
+- Fields (JSON for `import`, form fields for `upload`): `url` (import only), `filename`, `subfolder`, `activation_text`, `preferred_weight`, `negative_text`, `description`, `notes`, `sd_version` (a preset name such as `xl`, `flux`, `anima`, or `Unknown`), `preview_url`, `overwrite`, `sha256`.
+- The file must be a valid safetensors file; its header is parsed and nothing is executed. File and sub folder names are sanitized and cannot leave the Lora folder.
+- An identical existing file returns `"status": "exists"`. A different file with the same name returns HTTP 409 unless `overwrite` is true.
+- The card metadata goes into `<name>.json` (the same file the "Edit metadata" dialog writes), so clicking the card adds the activation text and weight. `preview_url` is saved as `<name>.preview.<ext>`; a preview that cannot be fetched does not fail the import.
+- Only the new file is registered, so it appears in the Lora tab after pressing refresh, without rescanning every LoRA or restarting.
+- The response includes `name`, `alias`, `relative_path`, `sha256`, and a ready-made `prompt` such as `<lora:name:0.8> trigger`.
+- Like every other `/sdapi` endpoint it has no authentication of its own. With `--listen`, anyone who can reach the port can add files to the Lora folder; use `--api-auth` or a firewall if the port is reachable from untrusted machines.
+- The file registration is in `extensions-builtin/sd_forge_lora/scripts/lora_script.py`; the logic is in `lora_import.py` next to it.
 
 ### 3. Mobile support
 
@@ -143,6 +158,8 @@ The automatic cleanup after a VRAM out-of-memory error still performs a full unl
 | `modules/sd_models.py` | Modified | API |
 | `modules/ui.py` | Modified | API |
 | `modules/progress.py` | Modified | API, mobile |
+| `extensions-builtin/sd_forge_lora/lora_import.py` | Added | API |
+| `extensions-builtin/sd_forge_lora/scripts/lora_script.py` | Modified | API |
 | `modules/shared_options.py` | Modified | Mobile |
 | `javascript/progressbar.js` | Modified | Mobile |
 | `javascript/ui.js` | Modified | Mobile |
@@ -245,6 +262,24 @@ curl -X POST http://127.0.0.1:7860/sdapi/v1/reload-checkpoint
 
 # Check memory usage to confirm the unload worked
 curl http://127.0.0.1:7860/sdapi/v1/memory
+
+# Is the LoRA import API available, and where do files go?
+curl http://127.0.0.1:7860/sdapi/v1/lora/import
+
+# Download a LoRA into models/Lora/my-loras/ with its card text and preview
+curl -X POST http://127.0.0.1:7860/sdapi/v1/lora/import -H "Content-Type: application/json" -d '{
+  "url": "https://example.com/my_character.safetensors",
+  "filename": "my_character_e10",
+  "subfolder": "my-loras",
+  "activation_text": "my character",
+  "preferred_weight": 0.8,
+  "sd_version": "xl",
+  "preview_url": "https://example.com/sample.jpg"
+}'
+
+# Upload a local file instead
+curl -X POST http://127.0.0.1:7860/sdapi/v1/lora/upload \
+  -F file=@my_character_e10.safetensors -F subfolder=my-loras -F activation_text="my character"
 ```
 
 <br>
