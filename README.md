@@ -59,7 +59,7 @@ The following extensions are **not included in this repository**, because the `e
 
 ## Modifications
 
-Changes were made between 2026-07 and 2026-09; last updated 2026-09-27. Each item lists the affected files for easy comparison with upstream.
+Changes were made between 2026-07 and 2026-10; last updated 2026-10-17. Each item lists the affected files for easy comparison with upstream.
 
 ### 1. Docker deployment
 
@@ -105,6 +105,13 @@ The automatic cleanup after a VRAM out-of-memory error still performs a full unl
 - The response includes `name`, `alias`, `relative_path`, `sha256`, and a ready-made `prompt` such as `<lora:name:0.8> trigger`.
 - Like every other `/sdapi` endpoint it has no authentication of its own. With `--listen`, anyone who can reach the port can add files to the Lora folder; use `--api-auth` or a firewall if the port is reachable from untrusted machines.
 - The file registration is in `extensions-builtin/sd_forge_lora/scripts/lora_script.py`; the logic is in `lora_import.py` next to it.
+
+**MCP server** (added 2026-10-17). A new built-in extension, `extensions-builtin/sd_forge_mcp`, serves the WebUI as a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp` (Streamable HTTP), so AI agents such as Claude Code, Claude Desktop or Codex can use it directly.
+
+- Tools: `txt2img`, `img2img` (both stream progress notifications while generating and return the images plus the generation info), `list_checkpoints`, `set_checkpoint`, `list_samplers`, `list_schedulers`, `list_upscalers`, `list_loras` (`full: true` adds the path and training metadata), `list_modules`, `list_embeddings`, `list_styles`, `png_info`, `get_progress` (optionally with the live preview), `interrupt`, `skip`, `refresh_checkpoints`, `refresh_loras`, `refresh_embeddings`, `a1111_memory`, `a1111_unload_checkpoint`, `a1111_reload_checkpoint`.
+- Each tool calls the WebUI's own `/sdapi/v1` route in-process, so the results match the REST API and `--api` is required. `txt2img` / `img2img` accept `checkpoint` (used for that request only), `extra` (any other request field, e.g. `alwayson_scripts`) and `image_format: "jpeg"` for smaller results.
+- Authentication: clients send `Authorization: Bearer <token>` (or `X-MCP-Token`, or `?token=` for clients that cannot set headers). The token is generated on first start and shown under **Settings > MCP Server**, where the server can also be turned off; the environment variable `FORGE_MCP_TOKEN` overrides it. With `--api-auth`, the in-process calls reuse the first credentials.
+- No new dependencies: the protocol is implemented in `lib_mcp/server.py` on top of FastAPI (the official `mcp` Python SDK needs a newer pydantic than this WebUI pins). The server is stateless, offers no server-initiated stream (`GET` returns 405), and answers a call with a progress token as an SSE stream.
 
 ### 3. Mobile support
 
@@ -160,6 +167,10 @@ The automatic cleanup after a VRAM out-of-memory error still performs a full unl
 | `modules/progress.py` | Modified | API, mobile |
 | `extensions-builtin/sd_forge_lora/lora_import.py` | Added | API |
 | `extensions-builtin/sd_forge_lora/scripts/lora_script.py` | Modified | API |
+| `extensions-builtin/sd_forge_mcp/scripts/forge_mcp.py` | Added | API (MCP server) |
+| `extensions-builtin/sd_forge_mcp/lib_mcp/server.py` | Added | API (MCP server) |
+| `extensions-builtin/sd_forge_mcp/lib_mcp/a1111_tools.py` | Added | API (MCP server) |
+| `extensions-builtin/sd_forge_mcp/lib_mcp/__init__.py` | Added | API (MCP server) |
 | `modules/shared_options.py` | Modified | Mobile |
 | `javascript/progressbar.js` | Modified | Mobile |
 | `javascript/ui.js` | Modified | Mobile |
@@ -280,6 +291,21 @@ curl -X POST http://127.0.0.1:7860/sdapi/v1/lora/import -H "Content-Type: applic
 # Upload a local file instead
 curl -X POST http://127.0.0.1:7860/sdapi/v1/lora/upload \
   -F file=@my_character_e10.safetensors -F subfolder=my-loras -F activation_text="my character"
+```
+
+Connect an MCP client (the token is under Settings > MCP Server):
+
+```bash
+# Claude Code
+claude mcp add --transport http forge http://127.0.0.1:7860/mcp --header "Authorization: Bearer <token>"
+
+# Codex: the token is read from an environment variable when codex runs
+codex mcp add forge --url http://127.0.0.1:7860/mcp --bearer-token-env-var FORGE_MCP_TOKEN
+export FORGE_MCP_TOKEN=<token>
+
+# Raw JSON-RPC
+curl -X POST http://127.0.0.1:7860/mcp -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 <br>
